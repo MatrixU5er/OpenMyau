@@ -28,36 +28,53 @@ public class BlinkManager {
     public Deque<Packet<?>> blinkedPackets = new ConcurrentLinkedDeque<>();
 
     public boolean offerPacket(Packet<?> packet) {
-        if (this.blinkModule == BlinkModules.NONE || packet instanceof C00PacketKeepAlive || packet instanceof C01PacketChatMessage) {
+        if (packet == null) return false;
+
+        if (this.blinkModule == BlinkModules.NONE 
+            || packet instanceof C00PacketKeepAlive 
+            || packet instanceof C01PacketChatMessage) {
             return false;
-        } else if (this.blinkedPackets.isEmpty() && packet instanceof C0FPacketConfirmTransaction) {
-            return false;
-        } else {
-            this.blinkedPackets.offer(packet);
-            return true;
         }
+
+        if (this.blinkedPackets.isEmpty() && packet instanceof C0FPacketConfirmTransaction) {
+            return false;
+        }
+
+        this.blinkedPackets.offer(packet);
+        return true;
     }
 
     public boolean setBlinkState(boolean state, BlinkModules module) {
-        if (module == BlinkModules.NONE) {
-            return false;
-        }
-        if (state) {
-            this.blinkModule = module;
-            this.blinking = true;
-        } else {
-            if(blinkModule != module){
-                return false;
+        if (module == BlinkModules.NONE) return false;
+
+        try {
+            if (state) {
+                this.blinkModule = module;
+                this.blinking = true;
+            } else {
+                if (blinkModule != module) return false;
+
+                this.blinking = false;
+
+                if (mc.thePlayer != null && mc.theWorld != null && mc.getNetHandler() != null) {
+                    while (!blinkedPackets.isEmpty()) {
+                        try {
+                            Packet<?> blinkedPacket = blinkedPackets.poll();
+                            if (blinkedPacket != null) PacketUtil.sendPacket(blinkedPacket);
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                }
+                this.blinkModule = BlinkModules.NONE;
             }
+        } catch (Exception e) {
+            e.printStackTrace();
             this.blinking = false;
-            if (Minecraft.getMinecraft().getNetHandler() != null && this.blinkedPackets.isEmpty()) {
-                return true;
-            }
-            for (Packet<?> blinkedPacket : blinkedPackets) {
-                PacketUtil.sendPacket(blinkedPacket);
-            }
-            blinkedPackets.clear();
+            this.blinkedPackets.clear();
+            this.blinkModule = BlinkModules.NONE;
         }
+
         return true;
     }
 
@@ -75,21 +92,31 @@ public class BlinkManager {
 
     @EventTarget
     public void onPacket(PacketEvent event) {
-        if (event.getPacket() instanceof C00Handshake
-                || event.getPacket() instanceof C00PacketLoginStart
-                || event.getPacket() instanceof C00PacketServerQuery
-                || event.getPacket() instanceof C01PacketPing
-                || event.getPacket() instanceof C01PacketEncryptionResponse) {
-            this.setBlinkState(false, this.blinkModule);
+        try {
+            if (event.getPacket() != null &&
+                (event.getPacket() instanceof C00Handshake
+                 || event.getPacket() instanceof C00PacketLoginStart
+                 || event.getPacket() instanceof C00PacketServerQuery
+                 || event.getPacket() instanceof C01PacketPing
+                 || event.getPacket() instanceof C01PacketEncryptionResponse)) {
+                this.setBlinkState(false, this.blinkModule);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     @EventTarget
     public void onTick(TickEvent event) {
-        if (event.getType() == EventType.POST) {
-            if (mc.thePlayer.isDead) {
+        try {
+            if (event.getType() == EventType.POST 
+                && mc.thePlayer != null 
+                && mc.theWorld != null 
+                && mc.thePlayer.isDead) {
                 this.setBlinkState(false, this.blinkModule);
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }
